@@ -7,30 +7,17 @@ import android.graphics.Paint
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
-import androidx.compose.ui.unit.fontscaling.MathUtils
-import androidx.xr.runtime.math.clamp
 
 class CustomSeekBarView @JvmOverloads constructor(
     context: Context, attrs: AttributeSet? = null
 ) : View(context, attrs) {
 
-    private var centerX = 0f
-    private var markerRadius = 20f
     private val backgroundPaint = Paint().apply {
         color = Color.parseColor("#E0E0E0")
         style = Paint.Style.FILL
         isAntiAlias = true
     }
 
-    fun centerMarkerAtPosition(position: Float) {
-        val targetOffset = width * position - centerX
-        progress = MathUtils.clamp(targetOffset / width + 0.5f, 0f, 1f)
-    }
-
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        centerX = w / 2f
-    }
     private val centerLinePaint = Paint().apply {
         color = Color.parseColor("#0077CC")
         strokeWidth = 4f

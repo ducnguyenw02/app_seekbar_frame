@@ -9,7 +9,6 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.animation.AccelerateDecelerateInterpolator
-import android.view.animation.DecelerateInterpolator
 import android.widget.SeekBar
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -73,37 +72,27 @@ class MainActivity : AppCompatActivity() {
     }
     private fun moveToSpecialFrame(poseIndex: Int) {
         if (poseIndex in 0 until specialFrames.size && frameList.isNotEmpty()) {
-            isPlaying = false
-            handler.removeCallbacks(updateFramesRunnable)
-            binding.btnPlayPause.text = "Play"
+            // Dừng mọi animation đang chạy
+            binding.customSeekBar.clearAnimation()
 
+            // Lấy frame index tương ứng với button
             val frameIndex = specialFrames[poseIndex]
             val safeIndex = frameIndex.coerceIn(0, frameList.size - 1)
 
+            // Cập nhật ImageView
             binding.imageview.setImageBitmap(frameList[safeIndex])
             currentFrameIndex = safeIndex
 
+            // Tính progress tương ứng (0.0 - 1.0)
             val targetProgress = safeIndex.toFloat() / (frameList.size - 1)
 
-            // Di chuyển seekbar để marker ra giữa
-            binding.customSeekBar.centerMarkerAtPosition(targetProgress)
+            // Di chuyển seekbar với animation mượt mà
+            animateSeekbarToPosition(targetProgress)
 
-            // Animation mượt mà
-            animateSeekbarToCenter(targetProgress)
+            // Thông báo (tuỳ chọn)
+            Toast.makeText(this, "Đã di chuyển đến ${poseList[poseIndex]} (frame $frameIndex)",
+                Toast.LENGTH_SHORT).show()
         }
-    }
-
-    private fun animateSeekbarToCenter(targetProgress: Float) {
-        val animator = ValueAnimator.ofFloat(binding.customSeekBar.progress, targetProgress)
-        animator.duration = 500
-        animator.interpolator = DecelerateInterpolator()
-
-        animator.addUpdateListener { animation ->
-            val progress = animation.animatedValue as Float
-            binding.customSeekBar.progress = progress
-        }
-
-        animator.start()
     }
 
     private fun animateSeekbarToPosition(targetProgress: Float) {
