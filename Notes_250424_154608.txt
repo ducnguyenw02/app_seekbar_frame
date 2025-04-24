@@ -1,0 +1,379 @@
+// MainActivity.kt
+package com.example.drawingapp
+
+import android.content.Context
+import android.graphics.*
+import android.os.Bundle
+import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.View
+import androidx.appcompat.app.AppCompatActivity
+import com.example.drawingapp.databinding.ActivityMainBinding
+
+class MainActivity : AppCompatActivity() {
+    private lateinit var binding: ActivityMainBinding
+    
+    // Enum to track which shape is currently selected
+    enum class ShapeType {
+        LINE, SQUARE, CIRCLE
+    }
+    
+    private var currentShape = ShapeType.LINE
+    
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        
+        // Replace the ImageView with our custom DrawingView
+        val drawingView = DrawingView(this)
+        binding.frame.setImageDrawable(null)
+        (binding.frame.parent as android.view.ViewGroup).addView(drawingView)
+        
+        // Set up button listeners
+        binding.buttonLine.setOnClickListener {
+            currentShape = ShapeType.LINE
+            drawingView.setShapeType(currentShape)
+        }
+        
+        binding.buttonSquare.setOnClickListener {
+            currentShape = ShapeType.SQUARE
+            drawingView.setShapeType(currentShape)
+        }
+        
+        binding.buttonCircle.setOnClickListener {
+            currentShape = ShapeType.CIRCLE
+            drawingView.setShapeType(currentShape)
+        }
+    }
+}
+
+// Custom view that handles drawing and shape manipulation
+class DrawingView(context: Context, attrs: AttributeSet? = null) : View(context, attrs) {
+    
+    private val shapes = mutableListOf<Shape>()
+    private var currentShape: Shape? = null
+    private var selectedShape: Shape? = null
+    private var selectedControlPoint: Int = -1
+    private var isDrawing = false
+    private var shapeType = MainActivity.ShapeType.LINE
+    
+    private val paint = Paint().apply {
+        color = Color.BLACK
+        strokeWidth = 5f
+        style = Paint.Style.STROKE
+    }
+    
+    private val selectedPaint = Paint().apply {
+        color = Color.MAGENTA
+        strokeWidth = 5f
+        style = Paint.Style.STROKE
+    }
+    
+    private val fillPaint = Paint().apply {
+        color = Color.YELLOW
+        style = Paint.Style.FILL
+    }
+    
+    private val controlPointPaint = Paint().apply {
+        color = Color.BLUE
+        style = Paint.Style.FILL
+    }
+    
+    fun setShapeType(type: MainActivity.ShapeType) {
+        shapeType = type
+    }
+    
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        
+        // Draw all shapes
+        for (shape in shapes) {
+            if (shape == selectedShape) {
+                // Draw selected shape with different color
+                shape.draw(canvas, selectedPaint, fillPaint)
+                // Draw control points
+                shape.drawControlPoints(canvas, controlPointPaint)
+            } else {
+                shape.draw(canvas, paint, fillPaint)
+            }
+        }
+        
+        // Draw the current shape being created
+        currentShape?.draw(canvas, paint, fillPaint)
+    }
+    
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        val x = event.x
+        val y = event.y
+        
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                // Check if we're touching a control point of the selected shape
+                if (selectedShape != null) {
+                    selectedControlPoint = selectedShape!!.hitControlPoint(x, y)
+                    if (selectedControlPoint >= 0) {
+                        return true
+                    }
+                }
+                
+                // Check if we're touching an existing shape
+                for (shape in shapes) {
+                    if (shape.contains(x, y)) {
+                        selectedShape = shape
+                        invalidate()
+                        return true
+                    }
+                }
+                
+                // Start drawing a new shape
+                when (shapeType) {
+                    MainActivity.ShapeType.LINE -> currentShape = Line(x, y)
+                    MainActivity.ShapeType.SQUARE -> currentShape = Square(x, y)
+                    MainActivity.ShapeType.CIRCLE -> currentShape = Circle(x, y)
+                }
+                isDrawing = true
+                selectedShape = null
+            }
+            
+            MotionEvent.ACTION_MOVE -> {
+                if (selectedControlPoint >= 0 && selectedShape != null) {
+                    // Resize the selected shape
+                    selectedShape!!.moveControlPoint(selectedControlPoint, x, y)
+                    invalidate()
+                } else if (isDrawing && currentShape != null) {
+                    // Update the current shape being drawn
+                    currentShape!!.updateEndPoint(x, y)
+                    invalidate()
+                }
+            }
+            
+            MotionEvent.ACTION_UP -> {
+                if (isDrawing && currentShape != null) {
+                    // Finish drawing the current shape
+                    shapes.add(currentShape!!)
+                    selectedShape = currentShape
+                    currentShape = null
+                    isDrawing = false
+                    invalidate()
+                }
+                selectedControlPoint = -1
+            }
+        }
+        
+        return true
+    }
+}
+
+// Base class for all shapes
+abstract class Shape {
+    protected val controlPoints = Array(8) { PointF(0f, 0f) }
+    
+    abstract fun draw(canvas: Canvas, paint: Paint, fillPaint: Paint)
+    abstract fun contains(x: Float, y: Float): Boolean
+    abstract fun updateEndPoint(x: Float, y: Float)
+    abstract fun moveControlPoint(index: Int, x: Float, y: Float)
+    
+    fun drawControlPoints(canvas: Canvas, paint: Paint) {
+        for (point in controlPoints) {
+            canvas.drawCircle(point.x, point.y, 10f, paint)
+        }
+    }
+    
+    fun hitControlPoint(x: Float, y: Float): Int {
+        for (i in controlPoints.indices) {
+            val point = controlPoints[i]
+            if (Math.sqrt(Math.pow((x - point.x).toDouble(), 2.0) + 
+                        Math.pow((y - point.y).toDouble(), 2.0)) < 20) {
+                return i
+            }
+        }
+        return -1
+    }
+    
+    // Helper function to update control points around a rectangle
+    protected fun updateControlPointsForRect(rect: RectF) {
+        controlPoints[0].set(rect.left, rect.top)  // Top-left
+        controlPoints[1].set(rect.right, rect.top)  // Top-right
+        controlPoints[2].set(rect.right, rect.bottom)  // Bottom-right
+        controlPoints[3].set(rect.left, rect.bottom)  // Bottom-left
+        controlPoints[4].set((rect.left + rect.right) / 2, rect.top)  // Top-middle
+        controlPoints[5].set(rect.right, (rect.top + rect.bottom) / 2)  // Right-middle
+        controlPoints[6].set((rect.left + rect.right) / 2, rect.bottom)  // Bottom-middle
+        controlPoints[7].set(rect.left, (rect.top + rect.bottom) / 2)  // Left-middle
+    }
+}
+
+// Line implementation
+class Line(startX: Float, startY: Float) : Shape() {
+    private val startPoint = PointF(startX, startY)
+    private val endPoint = PointF(startX, startY)
+    
+    override fun draw(canvas: Canvas, paint: Paint, fillPaint: Paint) {
+        canvas.drawLine(startPoint.x, startPoint.y, endPoint.x, endPoint.y, paint)
+    }
+    
+    override fun contains(x: Float, y: Float): Boolean {
+        val distance = distanceToLine(x, y, startPoint.x, startPoint.y, endPoint.x, endPoint.y)
+        return distance < 20f
+    }
+    
+    override fun updateEndPoint(x: Float, y: Float) {
+        endPoint.set(x, y)
+        updateControlPoints()
+    }
+    
+    override fun moveControlPoint(index: Int, x: Float, y: Float) {
+        when (index) {
+            0 -> startPoint.set(x, y)
+            1 -> endPoint.set(x, y)
+        }
+        updateControlPoints()
+    }
+    
+    private fun updateControlPoints() {
+        controlPoints[0].set(startPoint.x, startPoint.y)
+        controlPoints[1].set(endPoint.x, endPoint.y)
+        // We only need 2 control points for a line
+        for (i in 2 until 8) {
+            controlPoints[i].set(-100f, -100f)  // Move off screen
+        }
+    }
+    
+    private fun distanceToLine(x: Float, y: Float, x1: Float, y1: Float, x2: Float, y2: Float): Float {
+        val A = x - x1
+        val B = y - y1
+        val C = x2 - x1
+        val D = y2 - y1
+        
+        val dot = A * C + B * D
+        val lenSq = C * C + D * D
+        var param = -1f
+        
+        if (lenSq != 0f) // to avoid division by 0
+            param = dot / lenSq
+            
+        var xx: Float
+        var yy: Float
+        
+        if (param < 0) {
+            xx = x1
+            yy = y1
+        } else if (param > 1) {
+            xx = x2
+            yy = y2
+        } else {
+            xx = x1 + param * C
+            yy = y1 + param * D
+        }
+        
+        val dx = x - xx
+        val dy = y - yy
+        
+        return Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+    }
+}
+
+// Square implementation
+class Square(startX: Float, startY: Float) : Shape() {
+    private val rect = RectF(startX, startY, startX, startY)
+    
+    override fun draw(canvas: Canvas, paint: Paint, fillPaint: Paint) {
+        canvas.drawRect(rect, fillPaint)
+        canvas.drawRect(rect, paint)
+    }
+    
+    override fun contains(x: Float, y: Float): Boolean {
+        return rect.contains(x, y)
+    }
+    
+    override fun updateEndPoint(x: Float, y: Float) {
+        rect.right = x
+        rect.bottom = y
+        updateControlPointsForRect(rect)
+    }
+    
+    override fun moveControlPoint(index: Int, x: Float, y: Float) {
+        when (index) {
+            0 -> { // Top-left
+                rect.left = x
+                rect.top = y
+            }
+            1 -> { // Top-right
+                rect.right = x
+                rect.top = y
+            }
+            2 -> { // Bottom-right
+                rect.right = x
+                rect.bottom = y
+            }
+            3 -> { // Bottom-left
+                rect.left = x
+                rect.bottom = y
+            }
+            4 -> { // Top-middle
+                rect.top = y
+            }
+            5 -> { // Right-middle
+                rect.right = x
+            }
+            6 -> { // Bottom-middle
+                rect.bottom = y
+            }
+            7 -> { // Left-middle
+                rect.left = x
+            }
+        }
+        updateControlPointsForRect(rect)
+    }
+}
+
+// Circle implementation
+class Circle(startX: Float, startY: Float) : Shape() {
+    private val center = PointF(startX, startY)
+    private var radius = 0f
+    private val rect = RectF()
+    
+    override fun draw(canvas: Canvas, paint: Paint, fillPaint: Paint) {
+        updateRect()
+        canvas.drawOval(rect, fillPaint)
+        canvas.drawOval(rect, paint)
+    }
+    
+    override fun contains(x: Float, y: Float): Boolean {
+        val distance = Math.sqrt(Math.pow((x - center.x).toDouble(), 2.0) + 
+                          Math.pow((y - center.y).toDouble(), 2.0)).toFloat()
+        return distance <= radius
+    }
+    
+    override fun updateEndPoint(x: Float, y: Float) {
+        radius = Math.sqrt(Math.pow((x - center.x).toDouble(), 2.0) + 
+                   Math.pow((y - center.y).toDouble(), 2.0)).toFloat()
+        updateRect()
+        updateControlPointsForRect(rect)
+    }
+    
+    override fun moveControlPoint(index: Int, x: Float, y: Float) {
+        when (index) {
+            0, 1, 2, 3 -> { // Corner points
+                val dx = x - center.x
+                val dy = y - center.y
+                radius = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+            }
+            4, 5, 6, 7 -> { // Middle points
+                val dx = x - center.x
+                val dy = y - center.y
+                radius = Math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
+            }
+        }
+        updateRect()
+        updateControlPointsForRect(rect)
+    }
+    
+    private fun updateRect() {
+        rect.left = center.x - radius
+        rect.top = center.y - radius
+        rect.right = center.x + radius
+        rect.bottom = center.y + radius
+    }
+}
