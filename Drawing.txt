@@ -1,0 +1,302 @@
+// Thêm các enum và data class
+enum class DrawingMode { NONE, LINE, SQUARE, CIRCLE }
+enum class EdgeType { NONE, TOP, BOTTOM, LEFT, RIGHT, TOP_LEFT, TOP_RIGHT, BOTTOM_LEFT, BOTTOM_RIGHT }
+
+data class DrawableShape(
+    val type: DrawingMode,
+    val startX: Float,
+    val startY: Float,
+    val endX: Float,
+    val endY: Float,
+    val color: Int = Color.RED,
+    val strokeWidth: Float = 5f
+)
+
+class MainActivity : AppCompatActivity() {
+    // Thêm các biến mới
+    private var currentMode = DrawingMode.NONE
+    private var currentShape: DrawableShape? = null
+    private var selectedShapeIndex = -1
+    private var currentEdge = EdgeType.NONE
+    private val shapes = mutableListOf<DrawableShape>()
+    private val touchThreshold = 30f
+    
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        binding = ActivityMainBinding.inflate(layoutInflater)
+        setContentView(binding.root)
+        
+        // ... (giữ nguyên các phần setup ban đầu)
+        
+        // Thêm sự kiện cho các nút vẽ
+        binding.btnDrawLine.setOnClickListener { currentMode = DrawingMode.LINE }
+        binding.btnDrawSquare.setOnClickListener { currentMode = DrawingMode.SQUARE }
+        binding.btnDrawCircle.setOnClickListener { currentMode = DrawingMode.CIRCLE }
+        
+        // Sự kiện touch cho ImageView
+        binding.imageview.setOnTouchListener { _, event ->
+            handleTouchEvent(event)
+            true
+        }
+    }
+    
+    private fun handleTouchEvent(event: MotionEvent): Boolean {
+        when (event.action) {
+            MotionEvent.ACTION_DOWN -> {
+                when (currentMode) {
+                    DrawingMode.LINE, DrawingMode.SQUARE, DrawingMode.CIRCLE -> {
+                        // Bắt đầu vẽ hình mới
+                        currentShape = DrawableShape(
+                            type = currentMode,
+                            startX = event.x,
+                            startY = event.y,
+                            endX = event.x,
+                            endY = event.y
+                        )
+                    }
+                    DrawingMode.NONE -> {
+                        // Kiểm tra chạm vào hình để chỉnh sửa
+                        selectedShapeIndex = findShapeAt(event.x, event.y)
+                        if (selectedShapeIndex != -1) {
+                            currentEdge = getTouchedEdge(event.x, event.y, shapes[selectedShapeIndex])
+                        }
+                    }
+                }
+            }
+            
+            MotionEvent.ACTION_MOVE -> {
+                when {
+                    currentShape != null -> {
+                        // Đang vẽ hình mới
+                        currentShape = currentShape?.copy(
+                            endX = event.x,
+                            endY = event.y
+                        )
+                        binding.imageview.invalidate()
+                    }
+                    selectedShapeIndex != -1 && currentEdge != EdgeType.NONE -> {
+                        // Đang chỉnh sửa hình
+                        modifyShape(event.x, event.y)
+                        binding.imageview.invalidate()
+                    }
+                }
+            }
+            
+            MotionEvent.ACTION_UP -> {
+                when {
+                    currentShape != null -> {
+                        // Kết thúc vẽ hình mới
+                        shapes.add(currentShape!!)
+                        currentShape = null
+                        currentMode = DrawingMode.NONE
+                        binding.imageview.invalidate()
+                    }
+                    selectedShapeIndex != -1 -> {
+                        // Kết thúc chỉnh sửa
+                        selectedShapeIndex = -1
+                        currentEdge = EdgeType.NONE
+                    }
+                }
+            }
+        }
+        return true
+    }
+    
+    private fun modifyShape(x: Float, y: Float) {
+        if (selectedShapeIndex == -1) return
+        
+        val shape = shapes[selectedShapeIndex]
+        when (currentEdge) {
+            EdgeType.TOP_LEFT -> shapes[selectedShapeIndex] = shape.copy(startX = x, startY = y)
+            EdgeType.TOP_RIGHT -> shapes[selectedShapeIndex] = shape.copy(endX = x, startY = y)
+            EdgeType.BOTTOM_LEFT -> shapes[selectedShapeIndex] = shape.copy(startX = x, endY = y)
+            EdgeType.BOTTOM_RIGHT -> shapes[selectedShapeIndex] = shape.copy(endX = x, endY = y)
+            EdgeType.TOP -> shapes[selectedShapeIndex] = shape.copy(startY = y)
+            EdgeType.BOTTOM -> shapes[selectedShapeIndex] = shape.copy(endY = y)
+            EdgeType.LEFT -> shapes[selectedShapeIndex] = shape.copy(startX = x)
+            EdgeType.RIGHT -> shapes[selectedShapeIndex] = shape.copy(endX = x)
+            else -> return
+        }
+    }
+    
+    private fun findShapeAt(x: Float, y: Float): Int {
+        shapes.forEachIndexed { index, shape ->
+            when (shape.type) {
+                DrawingMode.LINE -> {
+                    if (isPointNearLine(x, y, shape.startX, shape.startY, shape.endX, shape.endY)) {
+                        return index
+                    }
+                }
+                DrawingMode.SQUARE -> {
+                    val left = min(shape.startX, shape.endX)
+                    val top = min(shape.startY, shape.endY)
+                    val right = max(shape.startX, shape.endX)
+                    val bottom = max(shape.startY, shape.endY)
+                    if (x in left..right && y in top..bottom) {
+                        return index
+                    }
+                }
+                DrawingMode.CIRCLE -> {
+                    val centerX = (shape.startX + shape.endX) / 2
+                    val centerY = (shape.startY + shape.endY) / 2
+                    val radius = sqrt(
+                        (shape.endX - shape.startX).pow(2) + 
+                        (shape.endY - shape.startY).pow(2)
+                    ) / 2
+                    if (sqrt((x - centerX).pow(2) + (y - centerY).pow(2)) <= radius) {
+                        return index
+                    }
+                }
+                else -> {}
+            }
+        }
+        return -1
+    }
+    
+    private fun getTouchedEdge(x: Float, y: Float, shape: DrawableShape): EdgeType {
+        if (shape.type != DrawingMode.SQUARE && shape.type != DrawingMode.CIRCLE) {
+            return EdgeType.NONE
+        }
+        
+        val left = min(shape.startX, shape.endX)
+        val top = min(shape.startY, shape.endY)
+        val right = max(shape.startX, shape.endX)
+        val bottom = max(shape.startY, shape.endY)
+        
+        // Kiểm tra các góc
+        if (distance(x, y, left, top) < touchThreshold) return EdgeType.TOP_LEFT
+        if (distance(x, y, right, top) < touchThreshold) return EdgeType.TOP_RIGHT
+        if (distance(x, y, left, bottom) < touchThreshold) return EdgeType.BOTTOM_LEFT
+        if (distance(x, y, right, bottom) < touchThreshold) return EdgeType.BOTTOM_RIGHT
+        
+        // Kiểm tra các cạnh
+        if (abs(x - left) < touchThreshold && y in top..bottom) return EdgeType.LEFT
+        if (abs(x - right) < touchThreshold && y in top..bottom) return EdgeType.RIGHT
+        if (abs(y - top) < touchThreshold && x in left..right) return EdgeType.TOP
+        if (abs(y - bottom) < touchThreshold && x in left..right) return EdgeType.BOTTOM
+        
+        return EdgeType.NONE
+    }
+    
+    private fun distance(x1: Float, y1: Float, x2: Float, y2: Float): Float {
+        return sqrt((x1 - x2).pow(2) + (y1 - y2).pow(2))
+    }
+    
+    private fun isPointNearLine(x: Float, y: Float, x1: Float, y1: Float, x2: Float, y2: Float): Boolean {
+        val lineLength = distance(x1, y1, x2, y2)
+        val d1 = distance(x, y, x1, y1)
+        val d2 = distance(x, y, x2, y2)
+        
+        // Nếu điểm nằm quá xa so với chiều dài đường thẳng
+        if (d1 > lineLength * 1.5 || d2 > lineLength * 1.5) return false
+        
+        // Tính khoảng cách từ điểm đến đường thẳng
+        val area = abs((x2 - x1) * (y1 - y) - (x1 - x) * (y2 - y1))
+        val lineLength = distance(x1, y1, x2, y2)
+        val distance = area / lineLength
+        
+        return distance < touchThreshold
+    }
+    
+    // Tạo custom ImageView để vẽ các hình
+    class DrawableImageView @JvmOverloads constructor(
+        context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
+    ) : AppCompatImageView(context, attrs, defStyleAttr) {
+        
+        var shapes: List<DrawableShape> = emptyList()
+        var currentShape: DrawableShape? = null
+        var selectedIndex: Int = -1
+        
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            
+            // Vẽ các hình đã lưu
+            shapes.forEachIndexed { index, shape ->
+                drawShape(canvas, shape, index == selectedIndex)
+            }
+            
+            // Vẽ hình đang được vẽ
+            currentShape?.let { drawShape(canvas, it, false) }
+        }
+        
+        private fun drawShape(canvas: Canvas, shape: DrawableShape, isSelected: Boolean) {
+            val paint = Paint().apply {
+                color = shape.color
+                strokeWidth = shape.strokeWidth
+                style = Paint.Style.STROKE
+                isAntiAlias = true
+            }
+            
+            when (shape.type) {
+                DrawingMode.LINE -> {
+                    canvas.drawLine(shape.startX, shape.startY, shape.endX, shape.endY, paint)
+                }
+                DrawingMode.SQUARE -> {
+                    val left = min(shape.startX, shape.endX)
+                    val top = min(shape.startY, shape.endY)
+                    val right = max(shape.startX, shape.endX)
+                    val bottom = max(shape.startY, shape.endY)
+                    canvas.drawRect(left, top, right, bottom, paint)
+                    
+                    if (isSelected) {
+                        drawControlPoints(canvas, left, top, right, bottom, shape.strokeWidth * 2)
+                    }
+                }
+                DrawingMode.CIRCLE -> {
+                    val centerX = (shape.startX + shape.endX) / 2
+                    val centerY = (shape.startY + shape.endY) / 2
+                    val radius = sqrt(
+                        (shape.endX - shape.startX).pow(2) + 
+                        (shape.endY - shape.startY).pow(2)
+                    ) / 2
+                    canvas.drawCircle(centerX, centerY, radius, paint)
+                    
+                    if (isSelected) {
+                        drawCircleControlPoints(canvas, centerX, centerY, radius, shape.strokeWidth * 2)
+                    }
+                }
+                else -> {}
+            }
+        }
+        
+        private fun drawControlPoints(canvas: Canvas, left: Float, top: Float, 
+                                    right: Float, bottom: Float, size: Float) {
+            val pointPaint = Paint().apply {
+                color = Color.BLUE
+                style = Paint.Style.FILL
+            }
+            
+            // Vẽ 8 điểm điều khiển
+            val points = listOf(
+                left to top,          // Top-left
+                (left + right)/2 to top, // Top-center
+                right to top,         // Top-right
+                right to (top + bottom)/2, // Middle-right
+                right to bottom,      // Bottom-right
+                (left + right)/2 to bottom, // Bottom-center
+                left to bottom,       // Bottom-left
+                left to (top + bottom)/2  // Middle-left
+            )
+            
+            points.forEach { (x, y) ->
+                canvas.drawCircle(x, y, size, pointPaint)
+            }
+        }
+        
+        private fun drawCircleControlPoints(canvas: Canvas, centerX: Float, centerY: Float, 
+                                          radius: Float, size: Float) {
+            val pointPaint = Paint().apply {
+                color = Color.BLUE
+                style = Paint.Style.FILL
+            }
+            
+            // Vẽ 8 điểm điều khiển xung quanh hình tròn
+            for (i in 0..7) {
+                val angle = i * Math.PI / 4
+                val x = centerX + radius * cos(angle).toFloat()
+                val y = centerY + radius * sin(angle).toFloat()
+                canvas.drawCircle(x, y, size, pointPaint)
+            }
+        }
+    }
+}
