@@ -1,0 +1,441 @@
+package com.example.drawapp
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.PointF
+import android.view.MotionEvent
+import android.view.View
+import android.widget.ImageView
+import kotlin.math.max
+import kotlin.math.pow
+import kotlin.math.sqrt
+
+/**
+ * Lớp ShapeDrawer chịu trách nhiệm xử lý việc vẽ và điều chỉnh các hình trên ImageView
+ */
+class ShapeDrawer(private val context: Context, private val imageView: ImageView) {
+    
+    // Các loại hình có thể vẽ
+    enum class ShapeType {
+        LINE, CIRCLE, SQUARE, NONE
+    }
+    
+    // Các trạng thái khi tương tác với hình
+    enum class DrawState {
+        IDLE, DRAWING, RESIZING
+    }
+    
+    // Khai báo các thuộc tính
+    private var bitmap: Bitmap? = null
+    private var canvas: Canvas? = null
+    private var paint: Paint = Paint()
+    private var resizePaint: Paint = Paint()
+    private var currentShape: Shape? = null
+    private var currentShapeType = ShapeType.NONE
+    private var currentState = DrawState.IDLE
+    private var selectedResizePoint = -1
+    
+    // Vị trí bắt đầu và kết thúc khi vẽ hình
+    private var startPoint = PointF(0f, 0f)
+    private var endPoint = PointF(0f, 0f)
+    
+    // Khởi tạo
+    init {
+        // Thiết lập thuộc tính cho paint để vẽ hình
+        paint.color = Color.MAGENTA
+        paint.style = Paint.Style.FILL
+        paint.strokeWidth = 5f
+        paint.isAntiAlias = true
+        
+        // Thiết lập thuộc tính cho paint để vẽ điểm resize
+        resizePaint.color = Color.BLUE
+        resizePaint.style = Paint.Style.FILL
+        
+        // Thiết lập sự kiện touch cho ImageView
+        setupTouchListener()
+    }
+    
+    /**
+     * Khởi tạo bitmap và canvas để vẽ
+     */
+    fun initialize() {
+        if (imageView.width <= 0 || imageView.height <= 0) return
+        
+        // Khởi tạo bitmap với kích thước của ImageView
+        if (bitmap == null) {
+            bitmap = Bitmap.createBitmap(imageView.width, imageView.height, Bitmap.Config.ARGB_8888)
+            canvas = Canvas(bitmap!!)
+            canvas?.drawColor(Color.TRANSPARENT)
+            imageView.setImageBitmap(bitmap)
+        }
+    }
+    
+    /**
+     * Thiết lập loại hình cần vẽ
+     */
+    fun setShapeType(shapeType: ShapeType) {
+        this.currentShapeType = shapeType
+        this.currentShape = null
+        this.currentState = DrawState.IDLE
+        clearCanvas()
+    }
+    
+    /**
+     * Xóa canvas và vẽ lại
+     */
+    private fun clearCanvas() {
+        canvas?.drawColor(Color.TRANSPARENT)
+        redraw()
+    }
+    
+    /**
+     * Vẽ lại hình hiện tại và các điểm resize
+     */
+    private fun redraw() {
+        canvas?.drawColor(Color.TRANSPARENT)
+        currentShape?.draw(canvas, paint)
+        
+        // Nếu có hình được chọn, vẽ thêm 8 điểm resize xung quanh
+        if (currentShape != null) {
+            val resizePoints = currentShape!!.getResizePoints()
+            for (point in resizePoints) {
+                canvas?.drawCircle(point.x, point.y, 10f, resizePaint)
+            }
+        }
+        
+        imageView.invalidate()
+    }
+    
+    /**
+     * Thiết lập sự kiện touch cho ImageView
+     */
+    private fun setupTouchListener() {
+        imageView.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> handleActionDown(event)
+                MotionEvent.ACTION_MOVE -> handleActionMove(event)
+                MotionEvent.ACTION_UP -> handleActionUp(event)
+            }
+            true
+        }
+    }
+    
+    /**
+     * Xử lý sự kiện khi người dùng chạm vào màn hình
+     */
+    private fun handleActionDown(event: MotionEvent): Boolean {
+        val touchPoint = PointF(event.x, event.y)
+        
+        // Kiểm tra xem người dùng có đang chạm vào điểm resize không
+        if (currentShape != null) {
+            val resizePoints = currentShape!!.getResizePoints()
+            for (i in resizePoints.indices) {
+                if (isPointNear(touchPoint, resizePoints[i], 30f)) {
+                    currentState = DrawState.RESIZING
+                    selectedResizePoint = i
+                    return true
+                }
+            }
+        }
+        
+        // Nếu có loại hình được chọn, bắt đầu vẽ hình mới
+        if (currentShapeType != ShapeType.NONE) {
+            currentState = DrawState.DRAWING
+            startPoint.set(event.x, event.y)
+            endPoint.set(event.x, event.y)
+            
+            when (currentShapeType) {
+                ShapeType.LINE -> currentShape = LineShape(startPoint.x, startPoint.y, endPoint.x, endPoint.y)
+                ShapeType.CIRCLE -> currentShape = CircleShape(startPoint.x, startPoint.y, 0f)
+                ShapeType.SQUARE -> currentShape = SquareShape(startPoint.x, startPoint.y, 0f)
+                else -> {}
+            }
+            
+            redraw()
+        }
+        
+        return true
+    }
+    
+    /**
+     * Xử lý sự kiện khi người dùng di chuyển ngón tay trên màn hình
+     */
+    private fun handleActionMove(event: MotionEvent): Boolean {
+        when (currentState) {
+            DrawState.DRAWING -> {
+                // Cập nhật vị trí kết thúc khi đang vẽ
+                endPoint.set(event.x, event.y)
+                updateCurrentShape()
+            }
+            DrawState.RESIZING -> {
+                // Thực hiện resize hình dựa trên điểm được chọn
+                if (currentShape != null && selectedResizePoint >= 0) {
+                    currentShape!!.resize(selectedResizePoint, PointF(event.x, event.y))
+                }
+            }
+            else -> return false
+        }
+        
+        redraw()
+        return true
+    }
+    
+    /**
+     * Xử lý sự kiện khi người dùng nhấc ngón tay khỏi màn hình
+     */
+    private fun handleActionUp(event: MotionEvent): Boolean {
+        when (currentState) {
+            DrawState.DRAWING -> {
+                endPoint.set(event.x, event.y)
+                updateCurrentShape()
+            }
+            DrawState.RESIZING -> {
+                selectedResizePoint = -1
+            }
+            else -> {}
+        }
+        
+        currentState = DrawState.IDLE
+        redraw()
+        return true
+    }
+    
+    /**
+     * Cập nhật hình hiện tại dựa trên điểm bắt đầu và kết thúc
+     */
+    private fun updateCurrentShape() {
+        when (currentShape) {
+            is LineShape -> (currentShape as LineShape).updatePoints(startPoint.x, startPoint.y, endPoint.x, endPoint.y)
+            is CircleShape -> {
+                val radius = calculateDistance(startPoint, endPoint)
+                (currentShape as CircleShape).updateCircle(startPoint.x, startPoint.y, radius)
+            }
+            is SquareShape -> {
+                val size = max(
+                    kotlin.math.abs(endPoint.x - startPoint.x),
+                    kotlin.math.abs(endPoint.y - startPoint.y)
+                )
+                (currentShape as SquareShape).updateSquare(startPoint.x, startPoint.y, size)
+            }
+        }
+    }
+    
+    /**
+     * Kiểm tra xem một điểm có gần với điểm khác trong phạm vi cho trước không
+     */
+    private fun isPointNear(point1: PointF, point2: PointF, threshold: Float): Boolean {
+        return calculateDistance(point1, point2) <= threshold
+    }
+    
+    /**
+     * Tính khoảng cách giữa hai điểm
+     */
+    private fun calculateDistance(point1: PointF, point2: PointF): Float {
+        return sqrt(
+            (point2.x - point1.x).pow(2) + (point2.y - point1.y).pow(2)
+        )
+    }
+    
+    /**
+     * Lớp trừu tượng đại diện cho một hình
+     */
+    abstract class Shape {
+        abstract fun draw(canvas: Canvas?, paint: Paint)
+        abstract fun getResizePoints(): Array<PointF>
+        abstract fun resize(pointIndex: Int, newPosition: PointF)
+    }
+    
+    /**
+     * Lớp đại diện cho hình đường thẳng
+     */
+    inner class LineShape(
+        private var x1: Float,
+        private var y1: Float,
+        private var x2: Float,
+        private var y2: Float
+    ) : Shape() {
+        
+        fun updatePoints(x1: Float, y1: Float, x2: Float, y2: Float) {
+            this.x1 = x1
+            this.y1 = y1
+            this.x2 = x2
+            this.y2 = y2
+        }
+        
+        override fun draw(canvas: Canvas?, paint: Paint) {
+            canvas?.drawLine(x1, y1, x2, y2, paint)
+        }
+        
+        override fun getResizePoints(): Array<PointF> {
+            // 8 điểm: 2 điểm đầu cuối và 6 điểm xung quanh đường thẳng
+            val midX = (x1 + x2) / 2
+            val midY = (y1 + y2) / 2
+            
+            // Tính các điểm phụ trợ
+            val dx = (x2 - x1) / 4
+            val dy = (y2 - y1) / 4
+            
+            return arrayOf(
+                PointF(x1, y1),  // Điểm đầu
+                PointF(x1 + dx, y1 + dy),
+                PointF(midX, midY),  // Điểm giữa
+                PointF(x2 - dx, y2 - dy),
+                PointF(x2, y2),  // Điểm cuối
+                PointF(midX + dy, midY - dx),  // Điểm vuông góc với midpoint
+                PointF(midX - dy, midY + dx),  // Điểm vuông góc với midpoint khác chiều
+                PointF((x1 + x2 + dy) / 2, (y1 + y2 - dx) / 2)  // Điểm bổ sung
+            )
+        }
+        
+        override fun resize(pointIndex: Int, newPosition: PointF) {
+            when (pointIndex) {
+                0 -> {
+                    x1 = newPosition.x
+                    y1 = newPosition.y
+                }
+                4 -> {
+                    x2 = newPosition.x
+                    y2 = newPosition.y
+                }
+                else -> {
+                    // Các điểm khác có thể điều chỉnh cả x1, y1, x2, y2 dựa vào vị trí tương đối
+                    val dx = newPosition.x - getResizePoints()[pointIndex].x
+                    val dy = newPosition.y - getResizePoints()[pointIndex].y
+                    
+                    x1 += dx
+                    y1 += dy
+                    x2 += dx
+                    y2 += dy
+                }
+            }
+        }
+    }
+    
+    /**
+     * Lớp đại diện cho hình tròn
+     */
+    inner class CircleShape(
+        private var centerX: Float,
+        private var centerY: Float,
+        private var radius: Float
+    ) : Shape() {
+        
+        fun updateCircle(centerX: Float, centerY: Float, radius: Float) {
+            this.centerX = centerX
+            this.centerY = centerY
+            this.radius = radius
+        }
+        
+        override fun draw(canvas: Canvas?, paint: Paint) {
+            canvas?.drawCircle(centerX, centerY, radius, paint)
+        }
+        
+        override fun getResizePoints(): Array<PointF> {
+            // 8 điểm xung quanh hình tròn
+            return arrayOf(
+                PointF(centerX - radius, centerY),  // Trái
+                PointF(centerX - radius * 0.7071f, centerY - radius * 0.7071f),  // Trái trên
+                PointF(centerX, centerY - radius),  // Trên
+                PointF(centerX + radius * 0.7071f, centerY - radius * 0.7071f),  // Phải trên
+                PointF(centerX + radius, centerY),  // Phải
+                PointF(centerX + radius * 0.7071f, centerY + radius * 0.7071f),  // Phải dưới
+                PointF(centerX, centerY + radius),  // Dưới
+                PointF(centerX - radius * 0.7071f, centerY + radius * 0.7071f)   // Trái dưới
+            )
+        }
+        
+        override fun resize(pointIndex: Int, newPosition: PointF) {
+            // Tính toán bán kính mới dựa trên khoảng cách từ tâm đến điểm mới
+            val newRadius = calculateDistance(PointF(centerX, centerY), newPosition)
+            radius = newRadius
+        }
+    }
+    
+    /**
+     * Lớp đại diện cho hình vuông
+     */
+    inner class SquareShape(
+        private var topLeftX: Float,
+        private var topLeftY: Float,
+        private var size: Float
+    ) : Shape() {
+        
+        fun updateSquare(topLeftX: Float, topLeftY: Float, size: Float) {
+            this.topLeftX = topLeftX
+            this.topLeftY = topLeftY
+            this.size = size
+        }
+        
+        override fun draw(canvas: Canvas?, paint: Paint) {
+            canvas?.drawRect(topLeftX, topLeftY, topLeftX + size, topLeftY + size, paint)
+        }
+        
+        override fun getResizePoints(): Array<PointF> {
+            // 8 điểm: 4 đỉnh và 4 điểm giữa các cạnh
+            return arrayOf(
+                PointF(topLeftX, topLeftY),  // Trái trên
+                PointF(topLeftX + size / 2, topLeftY),  // Giữa trên
+                PointF(topLeftX + size, topLeftY),  // Phải trên
+                PointF(topLeftX + size, topLeftY + size / 2),  // Giữa phải
+                PointF(topLeftX + size, topLeftY + size),  // Phải dưới
+                PointF(topLeftX + size / 2, topLeftY + size),  // Giữa dưới
+                PointF(topLeftX, topLeftY + size),  // Trái dưới
+                PointF(topLeftX, topLeftY + size / 2)   // Giữa trái
+            )
+        }
+        
+        override fun resize(pointIndex: Int, newPosition: PointF) {
+            when (pointIndex) {
+                0 -> {
+                    // Góc trái trên
+                    val newSize = size + (topLeftX - newPosition.x) + (topLeftY - newPosition.y)
+                    if (newSize > 0) {
+                        topLeftX = newPosition.x
+                        topLeftY = newPosition.y
+                        size = newSize
+                    }
+                }
+                2 -> {
+                    // Góc phải trên
+                    val newWidth = newPosition.x - topLeftX
+                    val newHeight = topLeftY - newPosition.y + size
+                    val newSize = max(newWidth, newHeight)
+                    if (newSize > 0) {
+                        topLeftY = newPosition.y
+                        size = newSize
+                    }
+                }
+                4 -> {
+                    // Góc phải dưới
+                    val newSize = max(newPosition.x - topLeftX, newPosition.y - topLeftY)
+                    if (newSize > 0) {
+                        size = newSize
+                    }
+                }
+                6 -> {
+                    // Góc trái dưới
+                    val newWidth = topLeftX - newPosition.x + size
+                    val newHeight = newPosition.y - topLeftY
+                    val newSize = max(newWidth, newHeight)
+                    if (newSize > 0) {
+                        topLeftX = newPosition.x
+                        size = newSize
+                    }
+                }
+                else -> {
+                    // Điểm giữa các cạnh
+                    val centerX = topLeftX + size / 2
+                    val centerY = topLeftY + size / 2
+                    val dx = newPosition.x - getResizePoints()[pointIndex].x
+                    val dy = newPosition.y - getResizePoints()[pointIndex].y
+                    
+                    topLeftX += dx
+                    topLeftY += dy
+                }
+            }
+        }
+    }
+}
