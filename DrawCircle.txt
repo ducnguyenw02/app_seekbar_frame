@@ -1,0 +1,80 @@
+// Circle implementation with elliptical shape support
+class Circle(startX: Float, startY: Float) : Shape() {
+    private val center = PointF(startX, startY)
+    private var radiusX = 0f
+    private var radiusY = 0f
+    private val rect = RectF()
+    
+    override fun draw(canvas: Canvas, paint: Paint, fillPaint: Paint) {
+        updateRect()
+        canvas.drawOval(rect, fillPaint)
+        canvas.drawOval(rect, paint)
+    }
+    
+    override fun contains(x: Float, y: Float): Boolean {
+        // For ellipse, check if point is inside using the ellipse equation
+        if (radiusX == 0f || radiusY == 0f) return false
+        
+        val normalizedX = (x - center.x) / radiusX
+        val normalizedY = (y - center.y) / radiusY
+        return (normalizedX * normalizedX + normalizedY * normalizedY) <= 1.0
+    }
+    
+    override fun updateEndPoint(x: Float, y: Float) {
+        // Initially set both radiuses the same (perfect circle)
+        radiusX = Math.abs(x - center.x)
+        radiusY = Math.abs(y - center.y)
+        updateRect()
+        updateControlPointsForRect(rect)
+    }
+    
+    override fun moveControlPoint(index: Int, x: Float, y: Float) {
+        when (index) {
+            0 -> { // Top-left corner
+                val dx = center.x - x
+                val dy = center.y - y
+                radiusX = Math.abs(dx)
+                radiusY = Math.abs(dy)
+            }
+            1 -> { // Top-right corner
+                val dx = x - center.x
+                val dy = center.y - y
+                radiusX = Math.abs(dx)
+                radiusY = Math.abs(dy)
+            }
+            2 -> { // Bottom-right corner
+                val dx = x - center.x
+                val dy = y - center.y
+                radiusX = Math.abs(dx)
+                radiusY = Math.abs(dy)
+            }
+            3 -> { // Bottom-left corner
+                val dx = center.x - x
+                val dy = y - center.y
+                radiusX = Math.abs(dx)
+                radiusY = Math.abs(dy)
+            }
+            4 -> { // Top-middle - only adjust Y radius
+                radiusY = Math.abs(center.y - y)
+            }
+            5 -> { // Right-middle - only adjust X radius
+                radiusX = Math.abs(x - center.x)
+            }
+            6 -> { // Bottom-middle - only adjust Y radius
+                radiusY = Math.abs(y - center.y)
+            }
+            7 -> { // Left-middle - only adjust X radius
+                radiusX = Math.abs(center.x - x)
+            }
+        }
+        updateRect()
+        updateControlPointsForRect(rect)
+    }
+    
+    private fun updateRect() {
+        rect.left = center.x - radiusX
+        rect.top = center.y - radiusY
+        rect.right = center.x + radiusX
+        rect.bottom = center.y + radiusY
+    }
+}
