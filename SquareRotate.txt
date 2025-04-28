@@ -1,0 +1,152 @@
+// Square implementation
+class Square(startX: Float, startY: Float) : Shape() {
+    private val rect = RectF(startX, startY, startX, startY)
+    private val center = PointF(startX, startY)
+    private val corners = Array(4) { PointF(startX, startY) }
+    
+    override fun draw(canvas: Canvas, paint: Paint, fillPaint: Paint) {
+        if (rotation == 0f) {
+            // Vẽ hình vuông không xoay
+            canvas.drawRect(rect, fillPaint)
+            canvas.drawRect(rect, paint)
+        } else {
+            // Vẽ hình vuông đã xoay
+            val path = Path()
+            path.moveTo(corners[0].x, corners[0].y)
+            path.lineTo(corners[1].x, corners[1].y)
+            path.lineTo(corners[2].x, corners[2].y)
+            path.lineTo(corners[3].x, corners[3].y)
+            path.close()
+            
+            canvas.drawPath(path, fillPaint)
+            canvas.drawPath(path, paint)
+        }
+    }
+    
+    override fun contains(x: Float, y: Float): Boolean {
+        if (rotation == 0f) {
+            return rect.contains(x, y)
+        } else {
+            // Kiểm tra điểm có nằm trong hình vuông đã xoay không
+            // Sử dụng thuật toán point-in-polygon
+            val path = Path()
+            path.moveTo(corners[0].x, corners[0].y)
+            path.lineTo(corners[1].x, corners[1].y)
+            path.lineTo(corners[2].x, corners[2].y)
+            path.lineTo(corners[3].x, corners[3].y)
+            path.close()
+            
+            val bounds = RectF()
+            path.computeBounds(bounds, true)
+            val region = Region()
+            region.setPath(path, Region(
+                bounds.left.toInt(),
+                bounds.top.toInt(),
+                bounds.right.toInt(),
+                bounds.bottom.toInt()
+            ))
+            
+            return region.contains(x.toInt(), y.toInt())
+        }
+    }
+    
+    override fun updateEndPoint(x: Float, y: Float) {
+        rect.right = x
+        rect.bottom = y
+        updateCenter()
+        updateCorners()
+        updateControlPointsForRect(rect)
+    }
+    
+    override fun moveControlPoint(index: Int, x: Float, y: Float) {
+        when (index) {
+            0 -> { // Top-left
+                rect.left = x
+                rect.top = y
+            }
+            1 -> { // Top-right
+                rect.right = x
+                rect.top = y
+            }
+            2 -> { // Bottom-right
+                rect.right = x
+                rect.bottom = y
+            }
+            3 -> { // Bottom-left
+                rect.left = x
+                rect.bottom = y
+            }
+            4 -> { // Top-middle
+                rect.top = y
+            }
+            5 -> { // Right-middle
+                rect.right = x
+            }
+            6 -> { // Bottom-middle
+                rect.bottom = y
+            }
+            7 -> { // Left-middle
+                rect.left = x
+            }
+            -1 -> { /* Special case handled by moveShape */ }
+        }
+        updateCenter()
+        updateCorners()
+        updateControlPointsForRect(rect)
+    }
+    
+    override fun moveShape(dx: Float, dy: Float) {
+        rect.offset(dx, dy)
+        center.offset(dx, dy)
+        
+        // Di chuyển các góc
+        for (corner in corners) {
+            corner.offset(dx, dy)
+        }
+        
+        updateControlPointsForRect(rect)
+    }
+    
+    override fun rotateShape(pivotX: Float, pivotY: Float, degrees: Float) {
+        super.rotateShape(pivotX, pivotY, degrees)
+        
+        // Xoay các góc quanh tâm
+        for (corner in corners) {
+            rotatePoint(corner, pivotX, pivotY, degrees)
+        }
+        
+        // Cập nhật control points
+        // Ở đây chúng ta dùng vị trí các góc đã xoay để đặt control points
+        controlPoints[0].set(corners[0].x, corners[0].y)  // Top-left
+        controlPoints[1].set(corners[1].x, corners[1].y)  // Top-right
+        controlPoints[2].set(corners[2].x, corners[2].y)  // Bottom-right
+        controlPoints[3].set(corners[3].x, corners[3].y)  // Bottom-left
+        
+        // Các điểm ở giữa
+        controlPoints[4].set((corners[0].x + corners[1].x) / 2, (corners[0].y + corners[1].y) / 2)  // Top-middle
+        controlPoints[5].set((corners[1].x + corners[2].x) / 2, (corners[1].y + corners[2].y) / 2)  // Right-middle
+        controlPoints[6].set((corners[2].x + corners[3].x) / 2, (corners[2].y + corners[3].y) / 2)  // Bottom-middle
+        controlPoints[7].set((corners[3].x + corners[0].x) / 2, (corners[3].y + corners[0].y) / 2)  // Left-middle
+    }
+    
+    private fun updateCenter() {
+        center.set(
+            (rect.left + rect.right) / 2,
+            (rect.top + rect.bottom) / 2
+        )
+    }
+    
+    private fun updateCorners() {
+        corners[0].set(rect.left, rect.top)      // Top-left
+        corners[1].set(rect.right, rect.top)     // Top-right
+        corners[2].set(rect.right, rect.bottom)  // Bottom-right
+        corners[3].set(rect.left, rect.bottom)   // Bottom-left
+        
+        // Nếu có góc xoay, áp dụng xoay cho tất cả các góc
+        if (rotation != 0f) {
+            for (corner in corners) {
+                rotatePoint(corner, center.x, center.y, rotation)
+            }
+        }
+    }
+}
